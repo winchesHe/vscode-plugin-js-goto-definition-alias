@@ -1,0 +1,68 @@
+{
+  "publisher": "winches",
+  "name": "js-goto-definition-alias",
+  "displayName": "Js goto definition alias",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Js goto definition alias",
+  "author": "winches",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/winchesHe/vscode-plugin-js-goto-definition-alias.git"
+  },
+  "categories": [
+    "Other"
+  ],
+  "icon": "res/logo.png",
+  "main": "./dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "vscode": "^1.69.0"
+  },
+  "activationEvents": [
+    "onLanguage:javascript"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --external vscode",
+    "dev": "nr build --watch",
+    "lint": "eslint .",
+    "vscode:prepublish": "nr build",
+    "publish": "vsce publish --no-dependencies",
+    "pack": "vsce package --no-dependencies",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit",
+    "release": "bumpp && nr publish"
+  },
+  "contributes": {
+		"configuration": {
+      "title": "JS 跳转配置",
+      "properties": {
+        "activeChange": {
+          "type": "boolean",
+          "default": false,
+          "description": "随着编辑器更改，路径识别也会重新更新"
+        },
+        "tsconfigPaths": {
+          "type": "string",
+          "description": "自定义识别tsconfig.json的路径（基于项目根目录的相对路径）"
+        }
+      }
+    }
+	},
+  "devDependencies": {
+    "@antfu/eslint-config": "^0.25.2",
+    "@antfu/ni": "^0.17.2",
+    "@types/node": "^18.6.4",
+    "@types/vscode": "^1.69.0",
+    "eslint": "^8.21.0",
+    "rimraf": "^3.0.2",
+    "tsup": "^6.2.1",
+    "typescript": "^4.7.4",
+    "vite": "^3.0.4",
+    "vitest": "^0.21.0",
+    "vsce": "^2.10.0"
+  }
+}
