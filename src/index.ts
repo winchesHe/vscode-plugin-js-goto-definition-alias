@@ -71,6 +71,9 @@ function provideGoToPath(document: vscode.TextDocument) {
   else
     tsConfigContent = fs.readFileSync(tsConfigPath, 'utf8')
 
+  // 注释清理
+  tsConfigContent = tsConfigContent.split('\n').filter(i => !/\/\//.test(i) && !/\*\//.test(i)).filter(i => i).join('\n')
+
   const tsConfig = JSON.parse(tsConfigContent)
 
   if (!tsConfig.compilerOptions || !tsConfig.compilerOptions.paths)
@@ -100,7 +103,7 @@ function provideGoToPath(document: vscode.TextDocument) {
 
     if (alias) {
       const aliasPath = tsConfig.compilerOptions.paths[alias][0].replace('/*', '')
-      const resolvedPath = importPath.replace(pattern, aliasPath).replace(/^\//, '')
+      const resolvedPath = resolveImportPath(document, importPath.replace(pattern, aliasPath).replace(/^\//, ''))
       const hoverMessage = [
         { language: 'plaintext', value: `Alias: ${alias}\nPath: "${resolvedPath}"` },
         '---',
@@ -116,7 +119,7 @@ function provideGoToPath(document: vscode.TextDocument) {
 
       hoverProvider.addHover(hoverMessage, hoverRangeObj)
 
-      const targetUri = vscode.Uri.file(resolveImportPath(document, resolvedPath))
+      const targetUri = vscode.Uri.file(resolvedPath)
       const link = new vscode.DocumentLink(linkRangeObj, targetUri)
 
       linkProvider.addLink(link)
@@ -150,6 +153,16 @@ function resolveImportPath(document: vscode.TextDocument, importPath: string): s
   const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri)
   if (workspaceFolder) {
     const absolutePath = vscode.Uri.joinPath(workspaceFolder.uri, importPath).fsPath
+
+    const ext = ['.js', '.ts', '.vue']
+    for (const i of ext) {
+      const path = `${absolutePath}${i}`
+      const _indexPath = `${absolutePath}/index${i}`
+      if (fs.existsSync(path))
+        return path
+      if (fs.existsSync(_indexPath))
+        return path
+    }
     return absolutePath
   }
 
