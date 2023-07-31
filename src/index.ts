@@ -1,6 +1,9 @@
 import * as path from 'path'
 import * as fs from 'fs'
 import * as vscode from 'vscode'
+import os from 'os'
+
+const isWin = os.platform() === 'win32'
 
 let hoverProvider: vscode.HoverProvider & { addHover: (...args: any) => void; reset: (...args: any) => void }
 let linkProvider: vscode.DocumentLinkProvider & { addLink: (...args: any) => void; reset: (...args: any) => void }
@@ -60,16 +63,21 @@ function provideGoToPath(document: vscode.TextDocument) {
   const { tsconfigPath: tsPath } = getOptions()
   const tsConfigPath = path.join(vscode.workspace.rootPath || '', 'tsconfig.json')
   const _tsPath = path.join(vscode.workspace.rootPath || '', tsPath)
+  const activePath = document.uri.fsPath
+  const _transformPath = activePath?.replace(/(packages[\\/]\w+[\\/]).*/, '$1') || ''
+  const transformPath = path.join(_transformPath, 'tsconfig.json')
 
-  if (!fs.existsSync(tsConfigPath) && !fs.existsSync(_tsPath)) {
+  if (!fs.existsSync(tsConfigPath) && !fs.existsSync(_tsPath) && !fs.existsSync(transformPath)) {
     vscode.window.showErrorMessage(`不能识别到tsconfig的路径: ${_tsPath}`)
     return
   }
 
   if (fs.existsSync(_tsPath))
     tsConfigContent = fs.readFileSync(_tsPath, 'utf8')
-  else
+  else if (fs.existsSync(tsConfigPath))
     tsConfigContent = fs.readFileSync(tsConfigPath, 'utf8')
+  else
+    tsConfigContent = fs.readFileSync(transformPath, 'utf8')
 
   // 注释清理
   tsConfigContent = tsConfigContent.split('\n').filter(i => !/\/\//.test(i) && !/\*\//.test(i)).filter(i => i).join('\n')
@@ -103,7 +111,7 @@ function provideGoToPath(document: vscode.TextDocument) {
 
     if (alias) {
       const aliasPath = tsConfig.compilerOptions.paths[alias][0].replace('/*', '')
-      const resolvedPath = resolveImportPath(document, importPath.replace(pattern, aliasPath).replace(/^\//, ''))
+      const resolvedPath = resolveImportPath(document, importPath.replace(pattern, aliasPath).replace(/^\//, ''), _transformPath)
       const hoverMessage = [
         { language: 'plaintext', value: `Alias: ${alias}\nPath: "${resolvedPath}"` },
         '---',
@@ -148,25 +156,38 @@ function disposeProviders() {
   }
 }
 
-function resolveImportPath(document: vscode.TextDocument, importPath: string): string {
+function resolveImportPath(document: vscode.TextDocument, importPath: string, activePath = ''): string {
   // 在这里根据路径别名的配置解析 importPath，得到对应的文件路径
   const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri)
   if (workspaceFolder) {
     const absolutePath = vscode.Uri.joinPath(workspaceFolder.uri, importPath).fsPath
-
-    const ext = ['.js', '.ts', '.vue']
-    for (const i of ext) {
-      const path = `${absolutePath}${i}`
-      const _indexPath = `${absolutePath}/index${i}`
-      if (fs.existsSync(path))
-        return path
-      if (fs.existsSync(_indexPath))
-        return path
+    const _path = setExtPath(absolutePath)
+    const transformPath = setExtPath(path.join(activePath, importPath))
+    
+    if (fs.existsSync(_path)) {
+      return _path
     }
-    return absolutePath
+    if (fs.existsSync(transformPath)) {
+      return transformPath
+    }
   }
 
   return ''
+}
+
+function setExtPath(url: string) {
+  const ext = ['.vue', '.js', '.ts']
+
+  for (const item of ext) {
+    const extPath = `${url}${item}`
+    const extIndexPath = `${url}${isWin ? '\\' : '/'}index${item}`
+
+    if (fs.existsSync(extPath))
+      return extPath
+    if (fs.existsSync(extIndexPath))
+      return extIndexPath
+  }
+  return url
 }
 
 function getMatchImport(str: string) {
