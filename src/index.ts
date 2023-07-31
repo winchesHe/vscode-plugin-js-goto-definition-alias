@@ -68,7 +68,7 @@ function provideGoToPath(document: vscode.TextDocument) {
   const transformPath = path.join(_transformPath, 'tsconfig.json')
 
   if (!fs.existsSync(tsConfigPath) && !fs.existsSync(_tsPath) && !fs.existsSync(transformPath)) {
-    vscode.window.showErrorMessage(`不能识别到tsconfig的路径: ${_tsPath}`)
+    console.error(`不能识别到tsconfig的路径: ${_tsPath}`)
     return
   }
 
