@@ -9,11 +9,10 @@ let hoverProvider: vscode.HoverProvider & { addHover: (...args: any) => void; re
 let linkProvider: vscode.DocumentLinkProvider & { addLink: (...args: any) => void; reset: (...args: any) => void }
 let hoverDisposable: vscode.Disposable | undefined
 let linkDisposable: vscode.Disposable | undefined
+let activeCHangeDisposable: vscode.Disposable | undefined
 let activeEditor = vscode.window.activeTextEditor
 
 export function activate(context: vscode.ExtensionContext) {
-  const { activeChange } = getOptions()
-
   hoverProvider = new ImportHoverProvider()
   linkProvider = new ImportLinkProvider()
 
@@ -21,48 +20,44 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       activeEditor = editor
       if (activeEditor)
-        updateProviders()
+        provideGoToPath(activeEditor.document)
     }, null, context.subscriptions),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('js-goto-definition-alias')) {
+        disposeProviders()
+        updateProviders(context)
+      }
+    }),
   )
 
-  if (activeChange) {
-    context.subscriptions.push(
-      vscode.workspace.onDidChangeTextDocument((event) => {
-        if (activeEditor && event.document === activeEditor.document)
-          updateProviders()
-      }, null, context.subscriptions),
-    )
-  }
-
-  updateProviders()
+  updateProviders(context)
+  provideGoToPath(activeEditor?.document || {} as vscode.TextDocument)
 
   // 在插件激活时显示成功信息
   // vscode.window.showInformationMessage('插件已成功激活！')
 }
 
 function getOptions() {
-  vscode.window.showInformationMessage('activeChange')
-
-  const activeChange: boolean = vscode.workspace.getConfiguration('js-goto-definition-alias').get('activeChange') || false!
-  const tsconfigPath: string = vscode.workspace.getConfiguration('js-goto-definition-alias').get('tsconfigPaths') || 'undefined'
+  const { activeChange = false, tsconfigPath = null, runner = [] } = vscode.workspace.getConfiguration('js-goto-definition-alias')
 
   // const alias: Record<string, any> = vscode.workspace.getConfiguration().get('alias')!
 
   return {
     activeChange,
     tsconfigPath,
+    runner: ['javascript', ...runner],
     // alias,
   }
 }
 
 function provideGoToPath(document: vscode.TextDocument) {
-  if (document.languageId !== 'javascript')
+  let tsConfigContent: string
+  const { tsconfigPath: tsPath, runner } = getOptions()
+  if (!runner.includes(document.languageId))
     return
 
-  let tsConfigContent: string
-  const { tsconfigPath: tsPath } = getOptions()
   const tsConfigPath = path.join(vscode.workspace.rootPath || '', 'tsconfig.json')
-  const _tsPath = path.join(vscode.workspace.rootPath || '', tsPath)
+  const _tsPath = (tsPath && path.join(vscode.workspace.rootPath || '', tsPath)) || ''
   const activePath = document.uri.fsPath
   const _transformPath = activePath?.replace(/(packages[\\/]\w+[\\/]).*/, '$1') || ''
   const transformPath = path.join(_transformPath, 'tsconfig.json')
@@ -87,18 +82,15 @@ function provideGoToPath(document: vscode.TextDocument) {
   if (!tsConfig.compilerOptions || !tsConfig.compilerOptions.paths)
     return
 
-  const importRanges = document.getText().split('\n')
+ const text = document.getText()
 
   linkProvider.reset()
   hoverProvider.reset()
 
-  for (const range of importRanges) {
-    const match = getMatchImport(range)
-    if (!match)
-      continue
+  const importRanges = getMatchImport(text)!
 
-    const importStatement = match[0]
-    const importPath = match[1]
+  for (const data of importRanges) {
+    const importPath = data[1]
     let pattern = ''
 
     if (importPath.startsWith('.'))
@@ -116,32 +108,37 @@ function provideGoToPath(document: vscode.TextDocument) {
         { language: 'plaintext', value: `Alias: ${alias}\nPath: "${resolvedPath}"` },
         '---',
       ]
-      const hoverRange = document.getText().indexOf(importStatement)
-      const hoverRangeStart = document.positionAt(hoverRange)
-      const hoverRangeEnd = document.positionAt(hoverRange + importStatement.length)
-      const hoverRangeObj = new vscode.Range(hoverRangeStart, hoverRangeEnd)
-      const linkRange = document.getText().indexOf(importPath)
-      const linkRangeStart = document.positionAt(linkRange)
-      const linkRangeEnd = document.positionAt(linkRange + importPath.length)
-      const linkRangeObj = new vscode.Range(linkRangeStart, linkRangeEnd)
 
-      hoverProvider.addHover(hoverMessage, hoverRangeObj)
+      let linkRange
+      const linkReg = new RegExp(importPath, 'g')
 
-      const targetUri = vscode.Uri.file(resolvedPath)
-      const link = new vscode.DocumentLink(linkRangeObj, targetUri)
+      while (linkRange = linkReg.exec(text)) {
+        const linkRangeStart = document.positionAt(linkRange.index)
+        const linkRangeEnd = document.positionAt(linkRange.index + importPath.length)
+        const linkRangeObj = new vscode.Range(linkRangeStart, linkRangeEnd)
+        const targetUri = vscode.Uri.file(resolvedPath)
+        const link = new vscode.DocumentLink(linkRangeObj, targetUri)
 
-      linkProvider.addLink(link)
+        hoverProvider.addHover(hoverMessage, linkRangeObj)
+        linkProvider.addLink(link)
+      }
     }
   }
 }
 
-function updateProviders() {
-  disposeProviders()
-  if (activeEditor) {
+function updateProviders(context: vscode.ExtensionContext) {
+  const { runner, activeChange } = getOptions()
+  if (activeEditor && runner.includes(activeEditor.document.languageId)) {
     const document = activeEditor.document
-    hoverDisposable = vscode.languages.registerHoverProvider({ scheme: 'file', language: 'javascript' }, hoverProvider)
-    linkDisposable = vscode.languages.registerDocumentLinkProvider({ scheme: 'file', language: 'javascript' }, linkProvider)
-    provideGoToPath(document)
+    hoverDisposable = vscode.languages.registerHoverProvider(runner.map(i => ({ scheme: 'file', language: i })), hoverProvider)
+    linkDisposable = vscode.languages.registerDocumentLinkProvider(runner.map(i => ({ scheme: 'file', language: i })), linkProvider)
+
+    if (activeChange) {
+      activeCHangeDisposable = vscode.workspace.onDidChangeTextDocument((event) => {
+        if (activeEditor && event.document === activeEditor.document)
+          provideGoToPath(document)
+      }, null, context.subscriptions)
+    }
   }
 }
 
@@ -152,6 +149,10 @@ function disposeProviders() {
   }
   if (linkDisposable) {
     linkDisposable.dispose()
+    linkDisposable = undefined
+  }
+  if (activeCHangeDisposable) {
+    activeCHangeDisposable.dispose()
     linkDisposable = undefined
   }
 }
@@ -190,20 +191,60 @@ function setExtPath(url: string) {
   return url
 }
 
-function getMatchImport(str: string) {
+function getMatchImport(str: string, line = false) {
   const requireRegex = /require\(['"](.+)['"]\)/
-  const requireRegex2 = /.* = require\(['"](.+)['"]\)/
-  const importRegex = /import .+ from ['"](.+)['"]/
+  const requireRegex2 = /.*? (.+) = require\(['"](.+)['"]\)/
+  const importRegex = /import {?\s*(.+?)\s*}? from ['"](.+)['"]/
+  const importRegexAll = /import {?\s*([\w\W]+?)\s*}? from ['"](.+)['"]/g
   const importRegex2 = /import\(['"](.+)['"]\)/
 
-  if (requireRegex.test(str))
-    return str.match(requireRegex)
-  if (requireRegex2.test(str))
-    return str.match(requireRegex2)
-  if (importRegex.test(str))
-    return str.match(importRegex)
-  if (importRegex2.test(str))
-    return str.match(importRegex2)
+  const all = [
+    importRegex2,
+    /import\s*?['"](.+)['"]/,
+    requireRegex2,
+    requireRegex,
+  ]
+
+  if (requireRegex2.test(str) && line) {
+    const match = str.match(requireRegex2) ?? []
+    return [match[1].trim() ?? '', match[2] ?? '']
+  }
+  if (importRegex.test(str) && line) {
+    const match = str.match(importRegex) ?? []
+    return [match[1].trim() ?? '', match[2] ?? '']
+  }
+  if (requireRegex.test(str) && line) {
+    const match = str.match(requireRegex) ?? []
+    return [match[1].trim() ?? '', match[2] ?? '']
+  }
+  if (importRegex2.test(str) && line) {
+    const match = str.match(importRegex2) ?? []
+    return [match[1].trim() ?? '', match[2] ?? '']
+  }
+
+  const matchAll = str.match(importRegexAll) ?? []
+  const result: any[] = []
+
+  for (const item of matchAll)
+    result.push(matchImport(item))
+
+  for (const regItem of all) {
+    const matchAll = str.match(new RegExp(regItem, 'g')) ?? []
+
+    for (const item of matchAll)
+      result.push(matchImport(item, new RegExp(regItem)))
+  }
+
+  return result.length ? result : ['', '']
+
+  function matchImport(itemImport: string, reg = /import {?\s*([\w\W]+?)\s*}? from ['"](.+)['"]/) {
+    const importRegex = reg
+    const match = itemImport.match(importRegex) ?? []
+    if (!match[2] && match[1])
+      return [match[1] ?? '', match[1] ?? '']
+
+    return [match[1] ?? '', match[2] ?? '']
+  }
 }
 
 class ImportHoverProvider implements vscode.HoverProvider {
