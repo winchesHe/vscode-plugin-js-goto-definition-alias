@@ -32,9 +32,6 @@ export function activate(context: vscode.ExtensionContext) {
 
   updateProviders(context)
   provideGoToPath(activeEditor?.document || {} as vscode.TextDocument)
-
-  // 在插件激活时显示成功信息
-  // vscode.window.showInformationMessage('插件已成功激活！')
 }
 
 function getOptions() {
