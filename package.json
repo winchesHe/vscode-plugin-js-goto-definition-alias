@@ -23,7 +23,9 @@
     "vscode": "^1.69.0"
   },
   "activationEvents": [
-    "onLanguage:javascript"
+    "onLanguage:javascript",
+    "onLanguage:typescript",
+    "onLanguage:vue"
   ],
   "scripts": {
     "build": "tsup src/index.ts --external vscode",
@@ -37,17 +39,28 @@
     "release": "bumpp && nr publish"
   },
   "contributes": {
+	"configuration": {
+	"title": "JS 跳转配置",
+	"contributes": {
 		"configuration": {
       "title": "JS 跳转配置",
       "properties": {
-        "activeChange": {
+        "js-goto-definition-alias.activeChange": {
           "type": "boolean",
           "default": false,
           "description": "随着编辑器更改，路径识别也会重新更新"
         },
-        "tsconfigPaths": {
+        "js-goto-definition-alias.tsconfigPaths": {
           "type": "string",
           "description": "自定义识别tsconfig.json的路径（基于项目根目录的相对路径）"
+        },
+        "js-goto-definition-alias.runner": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["vue", "javascript", "typescript"]
+          },
+          "description": "添加运行的目录，默认js文件"
         }
       }
     }
