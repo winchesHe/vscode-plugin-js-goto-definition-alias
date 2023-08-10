@@ -87,7 +87,7 @@ function provideGoToPath(document: vscode.TextDocument) {
   const importRanges = getMatchImport(text)!
 
   for (const data of importRanges) {
-    const importPath = data[1]
+    const importPath = data[1].replace(/.*?\*\/\s?['"]/, '')
     let pattern = ''
 
     if (importPath.startsWith('.'))
@@ -193,7 +193,7 @@ function getMatchImport(str: string, line = false) {
   const requireRegex2 = /.*? (.+) = require\(['"](.+)['"]\)/
   const importRegex = /import {?\s*(.+?)\s*}? from ['"](.+)['"]/
   const importRegexAll = /import {?\s*([\w\W]+?)\s*}? from ['"](.+)['"]/g
-  const importRegex2 = /import\(['"](.+)['"]\)/
+  const importRegex2 = /import\(.*?['"](.+)['"]\)/
 
   const all = [
     importRegex2,
